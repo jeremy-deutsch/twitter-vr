@@ -25,6 +25,7 @@ export default function useTouch<T extends Mesh>(
 
   const wasTouchingRef = useRef(false);
   const lastIntersectionRef = useRef<Intersection<T>>();
+  const lastTimeRef = useRef(0);
 
   useXRFrame((time) => {
     if (handsReady) {
@@ -50,7 +51,8 @@ export default function useTouch<T extends Mesh>(
             lastIntersectionRef.current = intersection;
             args.onTouchStart?.(intersection);
           } else {
-            args.onTouchFrame?.(intersection, time);
+            const dt = time - lastTimeRef.current;
+            args.onTouchFrame?.(intersection, dt);
           }
         } else if (wasTouchingRef.current && lastIntersectionRef.current) {
           wasTouchingRef.current = false;
@@ -58,5 +60,6 @@ export default function useTouch<T extends Mesh>(
         }
       }
     }
+    lastTimeRef.current = time;
   });
 }

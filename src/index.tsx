@@ -1,8 +1,21 @@
 import ReactDOM from "react-dom";
 import { useEffect, useRef, useState } from "react";
-import { VRCanvas, Hands, DefaultXRControllers } from "@react-three/xr";
+import {
+  VRCanvas,
+  Hands,
+  DefaultXRControllers,
+  useXRFrame,
+} from "@react-three/xr";
 import "./styles.css";
-import { Line, Mesh, PlaneGeometry, TextureLoader, Vector3 } from "three";
+import {
+  Euler,
+  Group,
+  Line,
+  Mesh,
+  PlaneGeometry,
+  TextureLoader,
+  Vector3,
+} from "three";
 import { Circle, Plane, Text } from "@react-three/drei";
 import { HandsReadyProvider } from "./HandsReady";
 // @ts-expect-error no types in this library yet
@@ -32,9 +45,8 @@ function un(nums: number | number[]) {
   }
 }
 
-const slightlyForward = new Vector3(0, 0, 0.0001);
-
 interface TweetProps {
+  objectIndex: number;
   displayName: string;
   handle: string;
   body: string;
@@ -43,8 +55,6 @@ interface TweetProps {
 const tweetBodyHeight = 1.8;
 
 function Tweet(props: TweetProps) {
-  const position = useRef(new Vector3(0, 0.8, -0.4));
-
   const [{ lastCheckedBody, endPosition }, setBodyCheck] = useState<{
     lastCheckedBody: string | null;
     endPosition: number;
@@ -61,7 +71,7 @@ function Tweet(props: TweetProps) {
   }
 
   return (
-    <Plane position={position.current} args={un([3, 3])}>
+    <Plane position={un([props.objectIndex * 3, 0, 0])} args={un([3, 3])}>
       {/* profile image */}
       <Circle position={un([-1, 1, 0.001])} args={[un(0.3), 30]}>
         <meshLambertMaterial map={imageTexture} />
@@ -164,17 +174,60 @@ function InsideCanvas() {
 
   const planeRef = useRef<Mesh<PlaneGeometry>>(null);
 
-  const pictureRef = useRef<Mesh<PlaneGeometry>>(null);
+  const groupRef = useRef<Group>(null);
+
+  const isDraggingRef = useRef(false);
+  const touchStartPoint = useRef(0);
+  const touchStartDragAmount = useRef(0);
+  const velocity = useRef(0);
 
   useTouch(planeRef, {
     debugLineRef: lineRef,
-    onTouchFrame(intersection) {
-      if (pictureRef.current && pictureRef.current.parent) {
-        pictureRef.current.position
-          .addVectors(intersection.point, slightlyForward)
-          .sub(pictureRef.current.parent.position);
+    onTouchStart(intersection) {
+      isDraggingRef.current = true;
+      touchStartPoint.current = intersection.point.x;
+      touchStartDragAmount.current = groupRef.current?.position.x ?? 0;
+    },
+    onTouchFrame(intersection, dt) {
+      if (groupRef.current) {
+        const groupPosition = groupRef.current.position;
+        const prevDragAmount = groupPosition.x;
+        groupPosition.setX(
+          touchStartDragAmount.current +
+            intersection.point.x -
+            touchStartPoint.current,
+        );
+        velocity.current = (groupPosition.x - prevDragAmount) / dt;
       }
     },
+    onTouchEnd() {
+      isDraggingRef.current = false;
+    },
+  });
+
+  const debugTextRef = useRef(null);
+
+  const momentumScrollLastTime = useRef(0);
+
+  useXRFrame((time) => {
+    // momentum scroll
+    if (!isDraggingRef.current && groupRef.current && velocity.current) {
+      const groupPosition = groupRef.current.position;
+      const dt = time - momentumScrollLastTime.current;
+      const amountToMoveBy = velocity.current * dt;
+      groupPosition.setX(amountToMoveBy + groupPosition.x);
+
+      // decelerate
+      const prevSign = Math.sign(velocity.current);
+      velocity.current -= velocity.current * 0.0027 * dt;
+      if (
+        Math.abs(velocity.current) < 0.00001 ||
+        Math.sign(velocity.current) !== prevSign
+      ) {
+        velocity.current = 0;
+      }
+    }
+    momentumScrollLastTime.current = time;
   });
 
   return (
@@ -188,16 +241,53 @@ function InsideCanvas() {
         <lineBasicMaterial color={0xff0000} />
         <bufferGeometry />
       </line>
-      <Tweet
-        displayName="Jeremy Deutsch"
-        handle="deutsch_jeremy"
-        body={tweetBody}
-      />
-      {/* <Plane args={un([4, 4])} position={un([0, 8, 0])} ref={planeRef}>
-        <Plane ref={pictureRef} position={un([-1, 1, 0.01])} args={un([1, 1])}>
-          <meshLambertMaterial map={imageTexture} />
-        </Plane>
+      {/* <Plane args={un([3, 3])} position={[0, 1.5, -0.6]}>
+        <Text
+          ref={debugTextRef}
+          color="black"
+          fontSize={un(0.16)}
+          position={[0, 0, 0.001]}>
+          Debug Text Goes Here
+        </Text>
       </Plane> */}
+      <Plane
+        args={un([15, 3])}
+        ref={planeRef}
+        position={[0, 1, -0.6]}
+        rotation={new Euler(-Math.PI / 5)}>
+        <group ref={groupRef} position={[0, 0, 0]}>
+          <Tweet
+            objectIndex={-2}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+          <Tweet
+            objectIndex={-1}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+          <Tweet
+            objectIndex={0}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+          <Tweet
+            objectIndex={1}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+          <Tweet
+            objectIndex={2}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+        </group>
+      </Plane>
     </>
   );
 }
