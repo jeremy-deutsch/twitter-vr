@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "",
   "keywords": [],
+  "author": "Jeremy Deutsch (https://github.com/jeremy-deutsch)",
+  "license": "MIT",
   "main": "src/index.tsx",
   "dependencies": {
     "@react-three/drei": "7.20.0",
