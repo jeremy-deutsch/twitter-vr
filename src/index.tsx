@@ -22,6 +22,22 @@ import { HandsReadyProvider } from "./HandsReady";
 import { getCaretAtPoint } from "troika-three-text";
 import useTouch from "./useTouch";
 
+/*
+NEXT:
+- load tweets from Twitter
+
+LATER:
+- when a tweet wraps around, replace its content with the
+  next/previous one
+- (maybe, and maybe with help) make wrapping look pretty
+- create a component for showing a big tweet in front of you,
+  including any images in the tweet
+- get the scroll plane to recognize left/right vs. up/down gestures
+- use an "up" gesture to put a tweet in the big place
+- animate the above gesture, as well as the transition from small
+  to big tweet
+*/
+
 const imageTexture = new TextureLoader().load(
   "https://pbs.twimg.com/profile_images/709974198677069828/NeQa6N_M_400x400.jpg",
 );
@@ -45,6 +61,15 @@ function un(nums: number | number[]) {
   }
 }
 
+const numTweetsInRow = 5;
+const tweetCardWidth = un(3);
+
+const rowWidth = numTweetsInRow * tweetCardWidth;
+
+// make the wrap a little further than the row width, so that items
+// can't immediately wrap back and forth
+const wrapThreshold = rowWidth / 2 + tweetCardWidth / 4;
+
 interface TweetProps {
   objectIndex: number;
   displayName: string;
@@ -52,6 +77,8 @@ interface TweetProps {
   body: string;
 }
 
+// TODO: tweets should be a bit taller, so you can swipe the bottom
+// of them while looking at the top
 const tweetBodyHeight = 1.8;
 
 function Tweet(props: TweetProps) {
@@ -70,8 +97,29 @@ function Tweet(props: TweetProps) {
     bodyText = props.body;
   }
 
+  const cardRef = useRef<Mesh<PlaneGeometry>>(null);
+
+  // the number of times the tweet has wrapped around the left side
+  const [numWraps, setNumWraps] = useState(0);
+
+  const ownPosition = props.objectIndex * tweetCardWidth - numWraps * rowWidth;
+
+  useXRFrame(() => {
+    if (cardRef.current?.parent) {
+      const relativePosition = cardRef.current.parent.position.x + ownPosition;
+      if (relativePosition > wrapThreshold) {
+        setNumWraps(numWraps + 1);
+      } else if (relativePosition < -wrapThreshold) {
+        setNumWraps(numWraps - 1);
+      }
+    }
+  });
+
   return (
-    <Plane position={un([props.objectIndex * 3, 0, 0])} args={un([3, 3])}>
+    <Plane
+      ref={cardRef}
+      position={[ownPosition, 0, 0]}
+      args={[tweetCardWidth, un(3)]}>
       {/* profile image */}
       <Circle position={un([-1, 1, 0.001])} args={[un(0.3), 30]}>
         <meshLambertMaterial map={imageTexture} />
@@ -112,10 +160,9 @@ function Tweet(props: TweetProps) {
               // get the charIndex in the last fully-rendered row to know where to show a "..."
               const caret: { charIndex: number; y: number } = getCaretAtPoint(
                 troikaText.textRenderInfo,
-                un(0),
+                0,
                 un(-tweetBodyHeight),
               );
-              console.log(caret);
               if (
                 caret.y - troikaText.textRenderInfo.lineHeight <
                 un(-tweetBodyHeight)
@@ -178,7 +225,7 @@ function InsideCanvas() {
 
   const isDraggingRef = useRef(false);
   const touchStartPoint = useRef(0);
-  const touchStartDragAmount = useRef(0);
+  const touchStartGroupPosition = useRef(0);
   const velocity = useRef(0);
 
   useTouch(planeRef, {
@@ -186,14 +233,14 @@ function InsideCanvas() {
     onTouchStart(intersection) {
       isDraggingRef.current = true;
       touchStartPoint.current = intersection.point.x;
-      touchStartDragAmount.current = groupRef.current?.position.x ?? 0;
+      touchStartGroupPosition.current = groupRef.current?.position.x ?? 0;
     },
     onTouchFrame(intersection, dt) {
       if (groupRef.current) {
         const groupPosition = groupRef.current.position;
         const prevDragAmount = groupPosition.x;
         groupPosition.setX(
-          touchStartDragAmount.current +
+          touchStartGroupPosition.current +
             intersection.point.x -
             touchStartPoint.current,
         );
@@ -251,9 +298,9 @@ function InsideCanvas() {
         </Text>
       </Plane> */}
       <Plane
-        args={un([15, 3])}
+        args={[rowWidth, un(3)]}
         ref={planeRef}
-        position={[0, 1, -0.6]}
+        position={[0, 1.1, -0.4]}
         rotation={new Euler(-Math.PI / 5)}>
         <group ref={groupRef} position={[0, 0, 0]}>
           <Tweet
