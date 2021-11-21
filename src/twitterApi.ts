@@ -1,3 +1,4 @@
+import { useQuery } from "react-query";
 import tk from "./tk.json";
 
 interface Tweet {
@@ -90,6 +91,24 @@ interface MediaFields {
   alt_text?: string;
 }
 
+interface NonEmptyMeta {
+  oldest_id: string;
+  newest_id: string;
+  result_count: number;
+  next_token: string;
+  previous_token?: string;
+}
+
+interface EmptyMeta {
+  oldest_id?: never;
+  newest_id?: never;
+  result_count: 0;
+  next_token?: never;
+  previous_token?: string;
+}
+
+type Meta = NonEmptyMeta | EmptyMeta;
+
 type TweetExpansion = keyof TweetExpansionToField;
 
 interface TweetExpansionToField {
@@ -115,11 +134,12 @@ interface BaseIncludes<
   U extends keyof UserFields,
   T extends keyof TweetFields,
 > {
-  media: Media & Pick<MediaFields, M>;
-  users: User & Pick<UserFields, U>;
-  tweets: Tweet & Pick<TweetFields, T>;
+  media: Array<Media & Pick<MediaFields, M>>;
+  users: Array<User & Pick<UserFields, U>>;
+  tweets: Array<Tweet & Pick<TweetFields, T>>;
 }
 
+// TODO fix CORS errors
 async function getResponse(endpoint: String) {
   const res = await fetch(`https://api.twitter.com/2/${endpoint}`, {
     headers: { Authorization: `Bearer ${tk.bearerToken}` },
@@ -137,6 +157,7 @@ class RequestBuilder<
   private tweetFields = Array<keyof TweetFields>();
   private userFields = Array<keyof UserFields>();
   private mediaFields = Array<keyof MediaFields>();
+  private paginationTokenToUse: string | null = null;
 
   expansion<K extends Exclude<TweetExpansion, E>>(
     key: K,
@@ -168,6 +189,13 @@ class RequestBuilder<
     key: K,
   ): RequestBuilder<E, TF, UF, MF | K> {
     this.mediaFields.push(key);
+    return this;
+  }
+
+  paginationToken(token: string | null | undefined) {
+    if (token) {
+      this.paginationTokenToUse = token;
+    }
     return this;
   }
 
@@ -207,6 +235,7 @@ async function searchTweets<
 ): Promise<{
   data: Array<Tweet & Pick<TweetFields, T>>;
   includes: IncludesObj<E, M, U, T>;
+  meta: Meta;
 }> {
   return await getResponse(
     `tweets/search/recent?query=${encodeURIComponent(
@@ -215,13 +244,18 @@ async function searchTweets<
   );
 }
 
-async function customSearchTweets(query: string) {
+async function search(args: { queryKey: [string]; paginationToken?: string }) {
   const searchBuilder = new RequestBuilder()
     .expansion("attachments.media_keys")
     .expansion("author_id")
     .tweetField("public_metrics")
     .userField("profile_image_url")
-    .mediaField("preview_image_url");
+    .mediaField("preview_image_url")
+    .paginationToken(args.paginationToken);
 
-  return await searchTweets(query, searchBuilder);
+  return await searchTweets(args.queryKey[0], searchBuilder);
+}
+
+export function useTwitterSearch(query: string) {
+  return useQuery(query, search);
 }

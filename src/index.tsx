@@ -1,5 +1,5 @@
 import ReactDOM from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   VRCanvas,
   Hands,
@@ -12,6 +12,7 @@ import {
   Group,
   Line,
   Mesh,
+  MeshBasicMaterial,
   PlaneGeometry,
   TextureLoader,
   Vector3,
@@ -21,10 +22,14 @@ import { HandsReadyProvider } from "./HandsReady";
 // @ts-expect-error no types in this library yet
 import { getCaretAtPoint } from "troika-three-text";
 import useTouch from "./useTouch";
+import { useTwitterSearch } from "./twitterApi";
+import { QueryClient, QueryClientProvider } from "react-query";
+
+const queryClient = new QueryClient();
 
 /*
 NEXT:
-- load tweets from Twitter
+- finish loading tweets from Twitter (fix CORS errors)
 
 LATER:
 - when a tweet wraps around, replace its content with the
@@ -87,30 +92,59 @@ function Tweet(props: TweetProps) {
     endPosition: number;
   }>({ lastCheckedBody: null, endPosition: Infinity });
 
-  const isBodyTooLong =
-    props.body === lastCheckedBody && props.body.length > endPosition;
+  // the number of times the tweet has wrapped around the left side
+  const [numWraps, setNumWraps] = useState(0);
+
+  const twitterSearchResult = useTwitterSearch("garfield");
+
+  let displayName: string, handle: string, body: string;
+  let hidden = false;
+  if (twitterSearchResult.status === "error") {
+    displayName = "Error!";
+    handle = "error";
+    body = String(twitterSearchResult.error);
+  } else if (twitterSearchResult.status !== "success") {
+    displayName = "Loading...";
+    handle = "Loading";
+    body = "Loading...";
+  } else {
+    const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
+    const tweet = twitterSearchResult.data.data[tweetIndex];
+    if (tweet) {
+      const user = twitterSearchResult.data.includes.users.find(
+        (usr) => usr.id === tweet.author_id,
+      );
+      displayName = user?.name ?? "User not found";
+      handle = user?.username ?? "user_not_found";
+      body = tweet.text;
+    } else {
+      displayName = "";
+      handle = "";
+      body = "";
+      hidden = true;
+    }
+  }
+
+  const isBodyTooLong = body === lastCheckedBody && body.length > endPosition;
 
   let bodyText: string;
   if (isBodyTooLong) {
-    bodyText = props.body.substring(0, endPosition).trimEnd();
+    bodyText = body.substring(0, endPosition).trimEnd();
   } else {
-    bodyText = props.body;
+    bodyText = body;
   }
 
   const cardRef = useRef<Mesh<PlaneGeometry>>(null);
 
-  // the number of times the tweet has wrapped around the left side
-  const [numWraps, setNumWraps] = useState(0);
-
-  const ownPosition = props.objectIndex * tweetCardWidth - numWraps * rowWidth;
+  const ownPosition = props.objectIndex * tweetCardWidth + numWraps * rowWidth;
 
   useXRFrame(() => {
     if (cardRef.current?.parent) {
       const relativePosition = cardRef.current.parent.position.x + ownPosition;
       if (relativePosition > wrapThreshold) {
-        setNumWraps(numWraps + 1);
-      } else if (relativePosition < -wrapThreshold) {
         setNumWraps(numWraps - 1);
+      } else if (relativePosition < -wrapThreshold) {
+        setNumWraps(numWraps + 1);
       }
     }
   });
@@ -118,6 +152,7 @@ function Tweet(props: TweetProps) {
   return (
     <Plane
       ref={cardRef}
+      visible={numWraps >= 0 && !hidden}
       position={[ownPosition, 0, 0]}
       args={[tweetCardWidth, un(3)]}>
       {/* profile image */}
@@ -131,7 +166,7 @@ function Tweet(props: TweetProps) {
         position={un([-0.5, 1.1, 0.001])}
         fontSize={un(0.16)}
         clipRect={un([0, -1, 1.8, 1])}>
-        {props.displayName}
+        {displayName}
       </Text>
       {/* handle */}
       <Text
@@ -140,7 +175,7 @@ function Tweet(props: TweetProps) {
         position={un([-0.5, 0.9, 0.001])}
         fontSize={un(0.14)}
         clipRect={un([0, -1, 1.8, 1])}>
-        @{props.handle}
+        @{handle}
       </Text>
       {/* body */}
       <Text
@@ -155,7 +190,7 @@ function Tweet(props: TweetProps) {
         onSync={(
           troikaText: Mesh & { textRenderInfo: { lineHeight: number } },
         ) => {
-          if (props.body !== lastCheckedBody) {
+          if (body !== lastCheckedBody) {
             try {
               // get the charIndex in the last fully-rendered row to know where to show a "..."
               const caret: { charIndex: number; y: number } = getCaretAtPoint(
@@ -168,19 +203,19 @@ function Tweet(props: TweetProps) {
                 un(-tweetBodyHeight)
               ) {
                 setBodyCheck({
-                  lastCheckedBody: props.body,
+                  lastCheckedBody: body,
                   endPosition: caret.charIndex,
                 });
               } else {
                 setBodyCheck({
-                  lastCheckedBody: props.body,
+                  lastCheckedBody: body,
                   endPosition: Infinity,
                 });
               }
             } catch (e) {
               // getCaretAtPoint throws an error if it doesn't find anything
               setBodyCheck({
-                lastCheckedBody: props.body,
+                lastCheckedBody: body,
                 endPosition: Infinity,
               });
             }
@@ -257,23 +292,58 @@ function InsideCanvas() {
   const momentumScrollLastTime = useRef(0);
 
   useXRFrame((time) => {
-    // momentum scroll
-    if (!isDraggingRef.current && groupRef.current && velocity.current) {
+    if (!isDraggingRef.current && groupRef.current) {
       const groupPosition = groupRef.current.position;
-      const dt = time - momentumScrollLastTime.current;
-      const amountToMoveBy = velocity.current * dt;
-      groupPosition.setX(amountToMoveBy + groupPosition.x);
+      let amountToMoveBy = 0;
+      if (groupPosition.x > 0) {
+        // snap back to zero
+        if (groupPosition.x < 0.00001) {
+          groupPosition.x = 0;
+          velocity.current = 0;
+        } else {
+          const dt = time - momentumScrollLastTime.current;
+          amountToMoveBy -= groupPosition.x * 0.01 * dt;
+        }
+      }
+      if (velocity.current !== 0) {
+        // momentum scroll
+        const dt = time - momentumScrollLastTime.current;
+        amountToMoveBy += velocity.current * dt;
+        // groupPosition.setX(amountToMoveBy + groupPosition.x);
 
-      // decelerate
-      const prevSign = Math.sign(velocity.current);
-      velocity.current -= velocity.current * 0.0027 * dt;
-      if (
-        Math.abs(velocity.current) < 0.00001 ||
-        Math.sign(velocity.current) !== prevSign
-      ) {
-        velocity.current = 0;
+        // decelerate
+        const prevSign = Math.sign(velocity.current);
+        velocity.current -= velocity.current * 0.0027 * dt;
+        if (
+          Math.abs(velocity.current) < 0.00001 ||
+          Math.sign(velocity.current) !== prevSign
+        ) {
+          velocity.current = 0;
+        }
+      }
+
+      if (amountToMoveBy !== 0) {
+        groupPosition.setX(amountToMoveBy + groupPosition.x);
       }
     }
+
+    // momentum scroll
+    // if (!isDraggingRef.current && groupRef.current && velocity.current) {
+    //   const groupPosition = groupRef.current.position;
+    //   const dt = time - momentumScrollLastTime.current;
+    //   const amountToMoveBy = velocity.current * dt;
+    //   groupPosition.setX(amountToMoveBy + groupPosition.x);
+
+    //   // decelerate
+    //   const prevSign = Math.sign(velocity.current);
+    //   velocity.current -= velocity.current * 0.0027 * dt;
+    //   if (
+    //     Math.abs(velocity.current) < 0.00001 ||
+    //     Math.sign(velocity.current) !== prevSign
+    //   ) {
+    //     velocity.current = 0;
+    //   }
+    // }
     momentumScrollLastTime.current = time;
   });
 
@@ -304,18 +374,6 @@ function InsideCanvas() {
         rotation={new Euler(-Math.PI / 5)}>
         <group ref={groupRef} position={[0, 0, 0]}>
           <Tweet
-            objectIndex={-2}
-            displayName="Jeremy Deutsch"
-            handle="deutsch_jeremy"
-            body={tweetBody}
-          />
-          <Tweet
-            objectIndex={-1}
-            displayName="Jeremy Deutsch"
-            handle="deutsch_jeremy"
-            body={tweetBody}
-          />
-          <Tweet
             objectIndex={0}
             displayName="Jeremy Deutsch"
             handle="deutsch_jeremy"
@@ -333,6 +391,18 @@ function InsideCanvas() {
             handle="deutsch_jeremy"
             body={tweetBody}
           />
+          <Tweet
+            objectIndex={3}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
+          <Tweet
+            objectIndex={4}
+            displayName="Jeremy Deutsch"
+            handle="deutsch_jeremy"
+            body={tweetBody}
+          />
         </group>
       </Plane>
     </>
@@ -343,9 +413,11 @@ function InsideCanvas() {
 function App() {
   return (
     <VRCanvas>
-      <HandsReadyProvider>
-        <InsideCanvas />
-      </HandsReadyProvider>
+      <QueryClientProvider client={queryClient}>
+        <HandsReadyProvider>
+          <InsideCanvas />
+        </HandsReadyProvider>
+      </QueryClientProvider>
     </VRCanvas>
   );
 }
