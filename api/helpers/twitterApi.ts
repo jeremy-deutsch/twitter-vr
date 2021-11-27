@@ -1,5 +1,4 @@
-import { useQuery } from "react-query";
-import tk from "./tk.json";
+import fetch from "node-fetch";
 
 interface Tweet {
   id: string;
@@ -140,9 +139,9 @@ interface BaseIncludes<
 }
 
 // TODO fix CORS errors
-async function getResponse(endpoint: String) {
+async function getResponse(endpoint: String): Promise<any> {
   const res = await fetch(`https://api.twitter.com/2/${endpoint}`, {
-    headers: { Authorization: `Bearer ${tk.bearerToken}` },
+    headers: { Authorization: `Bearer ${process.env.bearerToken}` },
   });
   return res.json();
 }
@@ -244,7 +243,10 @@ async function searchTweets<
   );
 }
 
-async function search(args: { queryKey: [string]; paginationToken?: string }) {
+export async function search(args: {
+  query: string;
+  paginationToken?: string;
+}) {
   const searchBuilder = new RequestBuilder()
     .expansion("attachments.media_keys")
     .expansion("author_id")
@@ -253,9 +255,5 @@ async function search(args: { queryKey: [string]; paginationToken?: string }) {
     .mediaField("preview_image_url")
     .paginationToken(args.paginationToken);
 
-  return await searchTweets(args.queryKey[0], searchBuilder);
-}
-
-export function useTwitterSearch(query: string) {
-  return useQuery(query, search);
+  return await searchTweets(args.query, searchBuilder);
 }

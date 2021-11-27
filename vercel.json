@@ -1,0 +1,17 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/client/build/index.html" },
+    {
+      "source": "/static/:match*",
+      "destination": "/client/build/static/:match*"
+    },
+    {
+      "source": "/asset-manifest.json",
+      "destination": "/client/build/asset-manifest.json"
+    },
+    {
+      "source": "/scene.glb",
+      "destination": "/client/build/scene.glb"
+    }
+  ]
+}

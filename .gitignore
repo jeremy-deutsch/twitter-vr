@@ -1,3 +1,5 @@
 node_modules
-
 **/tk.json
+.vercel
+client/build
+.vscode/

@@ -1,5 +1,5 @@
 import ReactDOM from "react-dom";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   VRCanvas,
   Hands,
@@ -12,7 +12,6 @@ import {
   Group,
   Line,
   Mesh,
-  MeshBasicMaterial,
   PlaneGeometry,
   TextureLoader,
   Vector3,
@@ -22,30 +21,41 @@ import { HandsReadyProvider } from "./HandsReady";
 // @ts-expect-error no types in this library yet
 import { getCaretAtPoint } from "troika-three-text";
 import useTouch from "./useTouch";
-import { useTwitterSearch } from "./twitterApi";
-import { QueryClient, QueryClientProvider } from "react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "react-query";
+import type { search } from "../../api/helpers/twitterApi";
 
 const queryClient = new QueryClient();
 
+const defaultTwitterImage =
+  "https://cdn.vox-cdn.com/thumbor/YKll2AJSVqmLtCgVPhEYyx6BSyo=/305x0:620x300/920x613/filters:focal(416x93:514x191):format(webp)/cdn.vox-cdn.com/uploads/chorus_image/image/54012879/twitter_eggandgumdrop.0.jpg";
+
+async function twitterSearch(args: {
+  queryKey: [string];
+  paginationToken?: string;
+}): Promise<Awaited<ReturnType<typeof search>>> {
+  const result = await fetch(`/api/searchTweets?query=${args.queryKey[0]}`);
+  return await result.json();
+}
+
+function useTwitterSearch(query: string) {
+  return useQuery(query, twitterSearch);
+}
+
+const profileImageLoader = new TextureLoader();
+
 /*
 NEXT:
-- finish loading tweets from Twitter (fix CORS errors)
+- paginate the list of tweets
 
 LATER:
-- when a tweet wraps around, replace its content with the
-  next/previous one
 - (maybe, and maybe with help) make wrapping look pretty
 - create a component for showing a big tweet in front of you,
-  including any images in the tweet
+- put images in the big tweet component
 - get the scroll plane to recognize left/right vs. up/down gestures
 - use an "up" gesture to put a tweet in the big place
 - animate the above gesture, as well as the transition from small
   to big tweet
 */
-
-const imageTexture = new TextureLoader().load(
-  "https://pbs.twimg.com/profile_images/709974198677069828/NeQa6N_M_400x400.jpg",
-);
 
 function _un(num: number) {
   return num * 0.1;
@@ -98,6 +108,7 @@ function Tweet(props: TweetProps) {
   const twitterSearchResult = useTwitterSearch("garfield");
 
   let displayName: string, handle: string, body: string;
+  let image = defaultTwitterImage;
   let hidden = false;
   if (twitterSearchResult.status === "error") {
     displayName = "Error!";
@@ -109,7 +120,7 @@ function Tweet(props: TweetProps) {
     body = "Loading...";
   } else {
     const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
-    const tweet = twitterSearchResult.data.data[tweetIndex];
+    const tweet = twitterSearchResult.data?.data[tweetIndex];
     if (tweet) {
       const user = twitterSearchResult.data.includes.users.find(
         (usr) => usr.id === tweet.author_id,
@@ -117,6 +128,7 @@ function Tweet(props: TweetProps) {
       displayName = user?.name ?? "User not found";
       handle = user?.username ?? "user_not_found";
       body = tweet.text;
+      image = user?.profile_image_url ?? image;
     } else {
       displayName = "";
       handle = "";
@@ -124,6 +136,8 @@ function Tweet(props: TweetProps) {
       hidden = true;
     }
   }
+
+  const imageTexture = useMemo(() => profileImageLoader.load(image), [image]);
 
   const isBodyTooLong = body === lastCheckedBody && body.length > endPosition;
 

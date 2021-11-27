@@ -1,0 +1,43 @@
+{
+  "name": "twitter-vr",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [],
+  "author": "Jeremy Deutsch (https://github.com/jeremy-deutsch)",
+  "license": "MIT",
+  "main": "src/index.tsx",
+  "dependencies": {
+    "@react-three/drei": "7.20.0",
+    "@react-three/fiber": "7.0.1",
+    "@react-three/xr": "3.1.1",
+    "react": "17.0.2",
+    "react-dom": "17.0.2",
+    "react-query": "^3.33.2",
+    "react-scripts": "4.0.3",
+    "three": "0.129.0",
+    "typescript": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/react": "17.0.11",
+    "@types/react-dom": "17.0.7",
+    "@types/three": "0.133.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --env=jsdom",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ]
+}
