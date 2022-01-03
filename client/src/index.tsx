@@ -18,8 +18,6 @@ import {
 } from "three";
 import { Circle, Plane, Text } from "@react-three/drei";
 import { HandsReadyProvider } from "./HandsReady";
-// @ts-expect-error no types in this library yet
-import { getCaretAtPoint } from "troika-three-text";
 import useTouch from "./useTouch";
 import {
   QueryClient,
@@ -27,6 +25,7 @@ import {
   useInfiniteQuery,
 } from "react-query";
 import type { search } from "../../api/helpers/twitterApi";
+import useTrimmedText from "./useTrimmedText";
 
 /*
 NEXT:
@@ -122,6 +121,7 @@ function un(nums: number | number[]) {
 
 const numTweetsInRow = 5;
 const tweetCardWidth = un(3);
+const tweetCardHeight = un(3);
 
 const rowWidth = numTweetsInRow * tweetCardWidth;
 
@@ -141,11 +141,6 @@ interface TweetProps {
 const tweetBodyHeight = 1.8;
 
 function Tweet(props: TweetProps) {
-  const [{ lastCheckedBody, endPosition }, setBodyCheck] = useState<{
-    lastCheckedBody: string | null;
-    endPosition: number;
-  }>({ lastCheckedBody: null, endPosition: Infinity });
-
   // the number of times the tweet has wrapped around the left side
   const [numWraps, setNumWraps] = useState(0);
   const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
@@ -161,45 +156,39 @@ function Tweet(props: TweetProps) {
     }
   }, [fetchNextPage, mightBeOnNotYetLoadedPage]);
 
-  let displayName: string, handle: string, body: string;
+  let displayName: string, handle: string, fullBodyText: string;
   let image = defaultTwitterImage;
   let hidden = false;
   if (twitterSearchResult.status === "error") {
     displayName = "Error!";
     handle = "error";
-    body = String(twitterSearchResult.error);
+    fullBodyText = String(twitterSearchResult.error);
   } else if (
     twitterSearchResult.status !== "success" ||
     mightBeOnNotYetLoadedPage
   ) {
     displayName = "Loading...";
     handle = "Loading";
-    body = "Loading...";
+    fullBodyText = "Loading...";
   } else {
     if (tweetData?.type === "foundTweet") {
       const { tweet, user } = tweetData;
       displayName = user?.name ?? "User not found";
       handle = user?.username ?? "user_not_found";
-      body = tweet.text;
+      fullBodyText = tweet.text;
       image = user?.profile_image_url ?? image;
     } else {
       displayName = "";
       handle = "";
-      body = "";
+      fullBodyText = "";
       hidden = true;
     }
   }
 
   const imageTexture = useMemo(() => profileImageLoader.load(image), [image]);
 
-  const isBodyTooLong = body === lastCheckedBody && body.length > endPosition;
-
-  let bodyText: string;
-  if (isBodyTooLong) {
-    bodyText = body.substring(0, endPosition).trimEnd();
-  } else {
-    bodyText = body;
-  }
+  const { trimmedText: trimmedBodyText, onSyncTroikaText } =
+    useTrimmedText(fullBodyText);
 
   const cardRef = useRef<Mesh<PlaneGeometry>>(null);
 
@@ -221,7 +210,7 @@ function Tweet(props: TweetProps) {
       ref={cardRef}
       visible={numWraps >= 0 && !hidden}
       position={[ownPosition, 0, 0]}
-      args={[tweetCardWidth, un(3)]}>
+      args={[tweetCardWidth, tweetCardHeight]}>
       {/* profile image */}
       <Circle position={un([-1, 1, 0.001])} args={[un(0.3), 30]}>
         <meshLambertMaterial map={imageTexture} />
@@ -254,43 +243,10 @@ function Tweet(props: TweetProps) {
         whiteSpace="overflowWrap"
         maxWidth={un(2.6)}
         clipRect={un([0, -tweetBodyHeight, 2.6, 0])}
-        onSync={(
-          troikaText: Mesh & { textRenderInfo: { lineHeight: number } },
-        ) => {
-          if (body !== lastCheckedBody) {
-            try {
-              // get the charIndex in the last fully-rendered row to know where to show a "..."
-              const caret: { charIndex: number; y: number } = getCaretAtPoint(
-                troikaText.textRenderInfo,
-                0,
-                un(-tweetBodyHeight),
-              );
-              if (
-                caret.y - troikaText.textRenderInfo.lineHeight <
-                un(-tweetBodyHeight)
-              ) {
-                setBodyCheck({
-                  lastCheckedBody: body,
-                  endPosition: caret.charIndex,
-                });
-              } else {
-                setBodyCheck({
-                  lastCheckedBody: body,
-                  endPosition: Infinity,
-                });
-              }
-            } catch (e) {
-              // getCaretAtPoint throws an error if it doesn't find anything
-              setBodyCheck({
-                lastCheckedBody: body,
-                endPosition: Infinity,
-              });
-            }
-          }
-        }}>
-        {bodyText}
+        onSync={onSyncTroikaText}>
+        {trimmedBodyText}
       </Text>
-      {isBodyTooLong && (
+      {trimmedBodyText !== fullBodyText && (
         <Text
           color="black"
           anchorX="left"
@@ -376,7 +332,6 @@ function InsideCanvas() {
         // momentum scroll
         const dt = time - momentumScrollLastTime.current;
         amountToMoveBy += velocity.current * dt;
-        // groupPosition.setX(amountToMoveBy + groupPosition.x);
 
         // decelerate
         const prevSign = Math.sign(velocity.current);
@@ -394,23 +349,6 @@ function InsideCanvas() {
       }
     }
 
-    // momentum scroll
-    // if (!isDraggingRef.current && groupRef.current && velocity.current) {
-    //   const groupPosition = groupRef.current.position;
-    //   const dt = time - momentumScrollLastTime.current;
-    //   const amountToMoveBy = velocity.current * dt;
-    //   groupPosition.setX(amountToMoveBy + groupPosition.x);
-
-    //   // decelerate
-    //   const prevSign = Math.sign(velocity.current);
-    //   velocity.current -= velocity.current * 0.0027 * dt;
-    //   if (
-    //     Math.abs(velocity.current) < 0.00001 ||
-    //     Math.sign(velocity.current) !== prevSign
-    //   ) {
-    //     velocity.current = 0;
-    //   }
-    // }
     momentumScrollLastTime.current = time;
   });
 
@@ -435,7 +373,7 @@ function InsideCanvas() {
         </Text>
       </Plane> */}
       <Plane
-        args={[rowWidth, un(3)]}
+        args={[rowWidth, tweetCardHeight]}
         ref={planeRef}
         position={[0, 1.1, -0.4]}
         rotation={new Euler(-Math.PI / 5)}>
