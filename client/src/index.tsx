@@ -78,17 +78,29 @@ function useTwitterSearch(query: string) {
   // return useQuery(query, twitterSearch);
 }
 
-function getTweet(tweets: ReturnType<typeof useTwitterSearch>, index: number) {
-  if (tweets.status !== "success") return null;
+function getTweet(
+  data: ReturnType<typeof useTwitterSearch>["data"],
+  index: number,
+) {
+  if (!data) return null;
   let totalPrevIndices = 0;
-  for (const page of tweets.data.pages) {
+  for (const page of data.pages) {
     if (index - totalPrevIndices < page.data.length) {
       const tweet = page.data[index - totalPrevIndices];
       if (tweet == null) return null;
       const user = page.includes.users.find(
         (usr) => usr.id === tweet.author_id,
       );
-      return { type: "foundTweet", tweet, user } as const;
+
+      let media = tweet.attachments?.media_keys
+        ?.map((key) =>
+          page.includes.media.find((media) => media.media_key === key),
+        )
+        .filter(
+          (media): media is NonNullable<typeof media> =>
+            media?.type === "photo",
+        );
+      return { type: "foundTweet", tweet, user, media } as const;
     } else if (totalPrevIndices > index) {
       throw new Error("getTweet logic error");
     } else {
@@ -99,6 +111,7 @@ function getTweet(tweets: ReturnType<typeof useTwitterSearch>, index: number) {
 }
 
 const profileImageLoader = new TextureLoader();
+const tweetImageLoader = new TextureLoader();
 
 function _un(num: number) {
   return num * 0.1;
@@ -121,7 +134,7 @@ function un(nums: number | number[]) {
 
 const numTweetsInRow = 5;
 const tweetCardWidth = un(3);
-const tweetCardHeight = un(3);
+const tweetCardHeight = un(4);
 
 const rowWidth = numTweetsInRow * tweetCardWidth;
 
@@ -136,9 +149,10 @@ interface TweetProps {
   body: string;
 }
 
-// TODO: tweets should be a bit taller, so you can swipe the bottom
-// of them while looking at the top
 const tweetBodyHeight = 1.8;
+
+const tweetCardImageWidth = un(0.6);
+const tweetCardImageHeight = un(0.7);
 
 function Tweet(props: TweetProps) {
   // the number of times the tweet has wrapped around the left side
@@ -146,7 +160,10 @@ function Tweet(props: TweetProps) {
   const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
 
   const twitterSearchResult = useTwitterSearch("garfield");
-  const tweetData = getTweet(twitterSearchResult, tweetIndex);
+  const tweetData = useMemo(
+    () => getTweet(twitterSearchResult.data, tweetIndex),
+    [tweetIndex, twitterSearchResult.data],
+  );
   const mightBeOnNotYetLoadedPage =
     tweetData?.type === "outOfBounds" && twitterSearchResult.hasNextPage;
   const fetchNextPage = twitterSearchResult.fetchNextPage;
@@ -157,7 +174,7 @@ function Tweet(props: TweetProps) {
   }, [fetchNextPage, mightBeOnNotYetLoadedPage]);
 
   let displayName: string, handle: string, fullBodyText: string;
-  let image = defaultTwitterImage;
+  let profileImage = defaultTwitterImage;
   let hidden = false;
   if (twitterSearchResult.status === "error") {
     displayName = "Error!";
@@ -172,11 +189,13 @@ function Tweet(props: TweetProps) {
     fullBodyText = "Loading...";
   } else {
     if (tweetData?.type === "foundTweet") {
-      const { tweet, user } = tweetData;
+      const { tweet, user, media } = tweetData;
+      // tweet.attachments
       displayName = user?.name ?? "User not found";
       handle = user?.username ?? "user_not_found";
-      fullBodyText = tweet.text;
-      image = user?.profile_image_url ?? image;
+      // fullBodyText = tweet.text;
+      fullBodyText = tweetBody;
+      profileImage = user?.profile_image_url ?? profileImage;
     } else {
       displayName = "";
       handle = "";
@@ -185,7 +204,15 @@ function Tweet(props: TweetProps) {
     }
   }
 
-  const imageTexture = useMemo(() => profileImageLoader.load(image), [image]);
+  const profileImageTexture = useMemo(
+    () => profileImageLoader.load(profileImage),
+    [profileImage],
+  );
+
+  const otherImageTextures = useMemo(() => {
+    const images = tweetData?.media?.map((m) => m.preview_image_url ?? m.url);
+    return images?.map((image) => tweetImageLoader.load(image));
+  }, [tweetData?.media]);
 
   const { trimmedText: trimmedBodyText, onSyncTroikaText } =
     useTrimmedText(fullBodyText);
@@ -212,14 +239,14 @@ function Tweet(props: TweetProps) {
       position={[ownPosition, 0, 0]}
       args={[tweetCardWidth, tweetCardHeight]}>
       {/* profile image */}
-      <Circle position={un([-1, 1, 0.001])} args={[un(0.3), 30]}>
-        <meshLambertMaterial map={imageTexture} />
+      <Circle position={un([-1, 1.5, 0.001])} args={[un(0.3), 30]}>
+        <meshLambertMaterial map={profileImageTexture} />
       </Circle>
       {/* display name */}
       <Text
         color="black"
         anchorX="left"
-        position={un([-0.5, 1.1, 0.001])}
+        position={un([-0.5, 1.6, 0.001])}
         fontSize={un(0.16)}
         clipRect={un([0, -1, 1.8, 1])}>
         {displayName}
@@ -228,7 +255,7 @@ function Tweet(props: TweetProps) {
       <Text
         color="dimgray"
         anchorX="left"
-        position={un([-0.5, 0.9, 0.001])}
+        position={un([-0.5, 1.4, 0.001])}
         fontSize={un(0.14)}
         clipRect={un([0, -1, 1.8, 1])}>
         @{handle}
@@ -238,7 +265,7 @@ function Tweet(props: TweetProps) {
         color="black"
         anchorX="left"
         anchorY="top"
-        position={un([-1.3, 0.6, 0.001])}
+        position={un([-1.3, 1.1, 0.001])}
         fontSize={un(0.16)}
         whiteSpace="overflowWrap"
         maxWidth={un(2.6)}
@@ -250,11 +277,22 @@ function Tweet(props: TweetProps) {
         <Text
           color="black"
           anchorX="left"
-          position={un([-1.3, -1.2, 0.001])}
+          position={un([-1.3, -0.7, 0.001])}
           fontSize={un(0.3)}>
           ...
         </Text>
       )}
+      {otherImageTextures?.map((imageTexture, index) => (
+        <Plane
+          position={[
+            un(-1) + (tweetCardImageWidth + un(0.1)) * index,
+            un(-1.2),
+            un(0.001),
+          ]}
+          args={[tweetCardImageWidth, tweetCardImageHeight]}>
+          <meshLambertMaterial map={imageTexture} />
+        </Plane>
+      ))}
     </Plane>
   );
 }
@@ -375,7 +413,7 @@ function InsideCanvas() {
       <Plane
         args={[rowWidth, tweetCardHeight]}
         ref={planeRef}
-        position={[0, 1.1, -0.4]}
+        position={[0, 1.08, -0.4]}
         rotation={new Euler(-Math.PI / 5)}>
         <group ref={groupRef} position={[0, 0, 0]}>
           <Tweet

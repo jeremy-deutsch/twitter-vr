@@ -6,7 +6,7 @@ interface Tweet {
 }
 
 interface TweetFields {
-  attachments: { poll_ids?: string[]; media_keys?: string[] };
+  attachments?: { poll_ids?: string[]; media_keys?: string[] };
   author_id: string;
   conversation_id: string;
   created_at: string; // ISO 8601 date
@@ -83,11 +83,12 @@ interface MediaFields {
   duration_ms?: number;
   height: number;
   width: number;
-  preview_image_url: string;
+  preview_image_url?: string;
   public_metrics: {
     view_count?: number;
   };
   alt_text?: string;
+  url: string;
 }
 
 interface NonEmptyMeta {
@@ -200,6 +201,9 @@ class RequestBuilder<
 
   toParams() {
     let result = "";
+    if (this.expansions.length) {
+      result += `&expansions=${this.expansions.join(",")}`;
+    }
     if (this.tweetFields.length) {
       result += `&tweet.fields=${this.tweetFields.join(",")}`;
     }
@@ -208,9 +212,6 @@ class RequestBuilder<
     }
     if (this.mediaFields.length) {
       result += `&media.fields=${this.mediaFields.join(",")}`;
-    }
-    if (this.expansions.length) {
-      result += `&expansions=${this.expansions.join(",")}`;
     }
     return result;
   }
@@ -236,6 +237,7 @@ async function searchTweets<
   includes: IncludesObj<E, M, U, T>;
   meta: Meta;
 }> {
+  console.log(builder.toParams());
   return await getResponse(
     `tweets/search/recent?query=${encodeURIComponent(
       query,
@@ -253,6 +255,9 @@ export async function search(args: {
     .tweetField("public_metrics")
     .userField("profile_image_url")
     .mediaField("preview_image_url")
+    .mediaField("height")
+    .mediaField("width")
+    .mediaField("url")
     .paginationToken(args.paginationToken);
 
   return await searchTweets(args.query, searchBuilder);
