@@ -21,8 +21,39 @@ import { HandsReadyProvider } from "./HandsReady";
 // @ts-expect-error no types in this library yet
 import { getCaretAtPoint } from "troika-three-text";
 import useTouch from "./useTouch";
-import { QueryClient, QueryClientProvider, useQuery } from "react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useInfiniteQuery,
+} from "react-query";
 import type { search } from "../../api/helpers/twitterApi";
+
+/*
+NEXT:
+- create a component for showing a big tweet in front of you
+
+LATER:
+- (maybe, and maybe with help) make wrapping look pretty
+- put images in the big tweet component
+- put like and RT counts in the big tweet component
+- get the scroll plane to recognize left/right vs. up/down gestures
+- use an "up" gesture to put a tweet in the big place
+- animate the above gesture, as well as the transition from small
+  to big tweet
+- add an advisory about how this uses hand-tracking before entering VR
+
+SOMEWHERE ALONG THE LINE:
+- split this code into more files geez
+- make still-loading tweets have a nicer loading state
+
+MAYBE IF I'M FEELING REAL WILD:
+- add a login screen before entering VR
+- show a logged-in user's home feed
+- figure out how to recognize a thumbs-up
+- "like" a tweet if the user holds a thumbs-up for long enough
+- add visual indicators near the hand when a user starts and
+  completes a "like" (as well as animated progress in between)
+*/
 
 const queryClient = new QueryClient();
 
@@ -31,31 +62,44 @@ const defaultTwitterImage =
 
 async function twitterSearch(args: {
   queryKey: [string];
-  paginationToken?: string;
+  pageParam?: string;
 }): Promise<Awaited<ReturnType<typeof search>>> {
-  const result = await fetch(`/api/searchTweets?query=${args.queryKey[0]}`);
+  const result = await fetch(
+    `/api/searchTweets?query=${args.queryKey[0]}&paginationToken=${args.pageParam}`,
+  );
   return await result.json();
 }
 
 function useTwitterSearch(query: string) {
-  return useQuery(query, twitterSearch);
+  return useInfiniteQuery(query, twitterSearch, {
+    getNextPageParam: (lastPage) => lastPage.meta.next_token,
+    getPreviousPageParam: (lastPage) => lastPage.meta.previous_token,
+  });
+
+  // return useQuery(query, twitterSearch);
+}
+
+function getTweet(tweets: ReturnType<typeof useTwitterSearch>, index: number) {
+  if (tweets.status !== "success") return null;
+  let totalPrevIndices = 0;
+  for (const page of tweets.data.pages) {
+    if (index - totalPrevIndices < page.data.length) {
+      const tweet = page.data[index - totalPrevIndices];
+      if (tweet == null) return null;
+      const user = page.includes.users.find(
+        (usr) => usr.id === tweet.author_id,
+      );
+      return { type: "foundTweet", tweet, user } as const;
+    } else if (totalPrevIndices > index) {
+      throw new Error("getTweet logic error");
+    } else {
+      totalPrevIndices += page.data.length;
+    }
+  }
+  return { type: "outOfBounds" } as const;
 }
 
 const profileImageLoader = new TextureLoader();
-
-/*
-NEXT:
-- paginate the list of tweets
-
-LATER:
-- (maybe, and maybe with help) make wrapping look pretty
-- create a component for showing a big tweet in front of you,
-- put images in the big tweet component
-- get the scroll plane to recognize left/right vs. up/down gestures
-- use an "up" gesture to put a tweet in the big place
-- animate the above gesture, as well as the transition from small
-  to big tweet
-*/
 
 function _un(num: number) {
   return num * 0.1;
@@ -104,8 +148,18 @@ function Tweet(props: TweetProps) {
 
   // the number of times the tweet has wrapped around the left side
   const [numWraps, setNumWraps] = useState(0);
+  const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
 
   const twitterSearchResult = useTwitterSearch("garfield");
+  const tweetData = getTweet(twitterSearchResult, tweetIndex);
+  const mightBeOnNotYetLoadedPage =
+    tweetData?.type === "outOfBounds" && twitterSearchResult.hasNextPage;
+  const fetchNextPage = twitterSearchResult.fetchNextPage;
+  useEffect(() => {
+    if (mightBeOnNotYetLoadedPage) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, mightBeOnNotYetLoadedPage]);
 
   let displayName: string, handle: string, body: string;
   let image = defaultTwitterImage;
@@ -114,17 +168,16 @@ function Tweet(props: TweetProps) {
     displayName = "Error!";
     handle = "error";
     body = String(twitterSearchResult.error);
-  } else if (twitterSearchResult.status !== "success") {
+  } else if (
+    twitterSearchResult.status !== "success" ||
+    mightBeOnNotYetLoadedPage
+  ) {
     displayName = "Loading...";
     handle = "Loading";
     body = "Loading...";
   } else {
-    const tweetIndex = props.objectIndex + numWraps * numTweetsInRow;
-    const tweet = twitterSearchResult.data?.data[tweetIndex];
-    if (tweet) {
-      const user = twitterSearchResult.data.includes.users.find(
-        (usr) => usr.id === tweet.author_id,
-      );
+    if (tweetData?.type === "foundTweet") {
+      const { tweet, user } = tweetData;
       displayName = user?.name ?? "User not found";
       handle = user?.username ?? "user_not_found";
       body = tweet.text;
