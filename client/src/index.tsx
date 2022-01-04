@@ -153,6 +153,7 @@ const tweetBodyHeight = 1.8;
 
 const tweetCardImageWidth = un(0.6);
 const tweetCardImageHeight = un(0.7);
+const tweetImageAspect = tweetCardImageWidth / tweetCardImageHeight;
 
 function Tweet(props: TweetProps) {
   // the number of times the tweet has wrapped around the left side
@@ -193,8 +194,7 @@ function Tweet(props: TweetProps) {
       // tweet.attachments
       displayName = user?.name ?? "User not found";
       handle = user?.username ?? "user_not_found";
-      // fullBodyText = tweet.text;
-      fullBodyText = tweetBody;
+      fullBodyText = tweet.text;
       profileImage = user?.profile_image_url ?? profileImage;
     } else {
       displayName = "";
@@ -208,11 +208,6 @@ function Tweet(props: TweetProps) {
     () => profileImageLoader.load(profileImage),
     [profileImage],
   );
-
-  const otherImageTextures = useMemo(() => {
-    const images = tweetData?.media?.map((m) => m.preview_image_url ?? m.url);
-    return images?.map((image) => tweetImageLoader.load(image));
-  }, [tweetData?.media]);
 
   const { trimmedText: trimmedBodyText, onSyncTroikaText } =
     useTrimmedText(fullBodyText);
@@ -282,17 +277,60 @@ function Tweet(props: TweetProps) {
           ...
         </Text>
       )}
-      {otherImageTextures?.map((imageTexture, index) => (
-        <Plane
-          position={[
-            un(-1) + (tweetCardImageWidth + un(0.1)) * index,
-            un(-1.2),
-            un(0.001),
-          ]}
-          args={[tweetCardImageWidth, tweetCardImageHeight]}>
-          <meshLambertMaterial map={imageTexture} />
-        </Plane>
+      {tweetData?.media?.map(({ url, width, height }, index) => (
+        <TweetImage
+          url={url}
+          x={un(-1) + (tweetCardImageWidth + un(0.1)) * index}
+          y={un(-1.2)}
+          width={width}
+          height={height}
+        />
       ))}
+    </Plane>
+  );
+}
+
+function TweetImage(props: {
+  url: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const imageAspect = props.width / props.height;
+  const texture = useMemo(() => {
+    const result = tweetImageLoader.load(props.url);
+    result.matrixAutoUpdate = false;
+    // https://discourse.threejs.org/t/how-to-fit-the-texture-to-the-plane/12017
+    if (tweetImageAspect < imageAspect) {
+      result.matrix.setUvTransform(
+        0,
+        0,
+        tweetImageAspect / imageAspect,
+        1,
+        0,
+        0.5,
+        0.5,
+      );
+    } else {
+      result.matrix.setUvTransform(
+        0,
+        0,
+        1,
+        imageAspect / tweetImageAspect,
+        0,
+        0.5,
+        0.5,
+      );
+    }
+    return result;
+  }, [imageAspect, props.url]);
+
+  return (
+    <Plane
+      position={[props.x, props.y, un(0.001)]}
+      args={[tweetCardImageWidth, tweetCardImageHeight]}>
+      <meshLambertMaterial map={texture} />
     </Plane>
   );
 }
