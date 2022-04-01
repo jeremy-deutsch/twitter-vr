@@ -31,18 +31,21 @@ export default function useTouch<T extends Mesh>(
     if (handsReady) {
       const hand = gl.xr.getHand(0) as any;
       const indexTip: Mesh = hand.joints["index-finger-tip"];
-      const indexKnuckle: Mesh = hand.joints["index-finger-metacarpal"];
+      const indexMetacarpal: Mesh = hand.joints["index-finger-metacarpal"];
 
       args.debugLineRef?.current?.geometry.setFromPoints([
-        indexKnuckle.position,
+        indexMetacarpal.position,
         indexTip.position,
       ]);
 
       if (raycasterRef.current && meshRef.current) {
         const distance = distanceRef.current;
-        distance.subVectors(indexTip.position, indexKnuckle.position);
+        distance.subVectors(indexTip.position, indexMetacarpal.position);
         raycasterRef.current.far = distance.length();
-        raycasterRef.current.set(indexKnuckle.position, distance.normalize());
+        raycasterRef.current.set(
+          indexMetacarpal.position,
+          distance.normalize(),
+        );
         const [intersection]: Intersection<T>[] =
           raycasterRef.current.intersectObject(meshRef.current);
         if (intersection) {

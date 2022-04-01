@@ -20,6 +20,7 @@ import { Circle, Plane, Text } from "@react-three/drei";
 import { HandsReadyProvider } from "./HandsReady";
 import useTouch from "./useTouch";
 import {
+  InfiniteData,
   QueryClient,
   QueryClientProvider,
   useInfiniteQuery,
@@ -73,13 +74,14 @@ function useTwitterSearch(query: string) {
   return useInfiniteQuery(query, twitterSearch, {
     getNextPageParam: (lastPage) => lastPage.meta.next_token,
     getPreviousPageParam: (lastPage) => lastPage.meta.previous_token,
+    // select: (data) => getTweet(data, tweetIndex) as any,
   });
 
   // return useQuery(query, twitterSearch);
 }
 
 function getTweet(
-  data: ReturnType<typeof useTwitterSearch>["data"],
+  data: InfiniteData<Awaited<ReturnType<typeof search>>> | undefined,
   index: number,
 ) {
   if (!data) return null;
